@@ -1,12 +1,14 @@
 # 3D Floating Multi-Level Maze
 
-An interactive 3D maze game where you guide a reflective metal ball through multiple levels by tilting the maze with your mouse.
+An interactive 3D maze game where you guide multiple reflective metal balls through multiple levels by tilting the maze with your mouse.
 
 ## Features
 
+- **6 Interactive Balls**: Control 6 reflective metal balls simultaneously
+- **Ball-to-Ball Collision**: Balls can collide and interact with each other
 - **5 Levels of Unique Mazes**: Each level has a distinct color theme and unique wall layout
-- **Realistic Physics**: Ball rolls naturally based on gravity and maze tilt
-- **Reflective Metal Ball**: 18mm diameter ball with accurate environmental reflections
+- **Realistic Physics**: Balls roll naturally based on gravity and maze tilt
+- **Reflective Metal Balls**: 18mm diameter balls with accurate environmental reflections
 - **Mouse/Touch Controls**: Drag to tilt the maze along X and Y axes
 - **Progressive Difficulty**: Navigate through increasingly complex maze patterns
 - **Open Top/Bottom Design**: See through multiple maze layers for strategic planning
@@ -15,9 +17,9 @@ An interactive 3D maze game where you guide a reflective metal ball through mult
 
 1. Open `index.html` in a modern web browser
 2. Drag your mouse to tilt the maze
-3. Guide the metal ball to the center hole on each level
-4. The ball will fall to the next level and continue
-5. Complete all 5 levels to win!
+3. Guide all 6 metal balls to the center hole on each level
+4. Each ball will fall to the next level independently
+5. Navigate all balls through all 5 levels to win!
 
 ## Controls
 
@@ -75,21 +77,22 @@ Three.js is loaded via CDN from jsdelivr.
 ✅ 3D floating maze structure with 5 levels
 ✅ Each level fully enclosed with 6 vertical walls (rectangular shape)
 ✅ Open top and bottom for layer visibility
-✅ 18mm diameter reflective metal ball
-✅ Environmental reflections and highlights on ball
+✅ 6 reflective metal balls (18mm diameter each)
+✅ Environmental reflections and highlights on balls
+✅ Ball-to-ball collision physics
 ✅ Mouse drag to tilt maze (continuous and smooth)
 ✅ Realistic physics and gravity simulation
-✅ Ball rolls naturally on inclined surfaces
+✅ Balls roll naturally on inclined surfaces
 ✅ Center hole on each level
-✅ Ball falls through holes with bounce effect
+✅ Balls fall through holes with bounce effect
+✅ Independent tracking for each ball's level
 ✅ Distinct color theme per level
 ✅ Unique wall patterns per level
-✅ Physical collision detection
+✅ Physical collision detection (walls and balls)
 ✅ Consistent wall thickness and height
 ✅ Floating appearance in space
 ✅ Soft ambient lighting with multiple light sources
 ✅ Camera perspective showing full structure
-✅ Level progress indicator
 
 ## Future Enhancements
 
