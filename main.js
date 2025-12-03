@@ -4,14 +4,14 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // Scene setup
 let scene, camera, renderer, controls;
 let mazeLevels = [];
-let ball;
+let balls = [];
 let tiltX = 0, tiltY = 0;
 let targetTiltX = 0, targetTiltY = 0;
 let mouseDown = false;
 let mouseStart = { x: 0, y: 0 };
-let currentLevel = 0;
 const TOTAL_LEVELS = 5;
 const BALL_RADIUS = 0.009; // 18mm diameter = 9mm radius in meters
+const NUM_BALLS = 6; // Number of balls to create
 const GRAVITY = 0.00015;
 const FRICTION = 0.98;
 const BOUNCE_DAMPING = 0.6;
@@ -20,11 +20,6 @@ const MAZE_SIZE = 0.4; // 40cm x 40cm maze
 const WALL_HEIGHT = 0.04; // 4cm wall height
 const WALL_THICKNESS = 0.008; // 8mm wall thickness
 const HOLE_RADIUS = 0.025; // 2.5cm hole radius
-
-let ballVelocity = { x: 0, y: 0, z: 0 };
-let ballPosition = { x: 0, y: 0, z: 0 };
-let isFalling = false;
-let fallTarget = null;
 
 // Maze configurations for each level
 const mazeConfigs = [
@@ -122,17 +117,14 @@ function init() {
     // Create maze levels
     createMazeLevels();
 
-    // Create ball
-    createBall();
+    // Create balls
+    createBalls();
 
     // Mouse controls
     setupMouseControls();
 
     // Handle window resize
     window.addEventListener('resize', onWindowResize);
-
-    // Update level indicator
-    updateLevelIndicator();
 
     // Animation loop
     animate();
@@ -241,35 +233,57 @@ function createWall(width, depth, height, material) {
     return mesh;
 }
 
-function createBall() {
+function createBalls() {
     const geometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
-
-    // Create reflective metal material
-    const material = new THREE.MeshStandardMaterial({
-        color: 0xcccccc,
-        metalness: 0.95,
-        roughness: 0.1,
-        envMapIntensity: 1.5
-    });
 
     // Create environment map for reflections
     const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(256);
     const cubeCamera = new THREE.CubeCamera(0.01, 10, cubeRenderTarget);
     scene.add(cubeCamera);
-
-    material.envMap = cubeRenderTarget.texture;
     window.cubeCamera = cubeCamera;
 
-    ball = new THREE.Mesh(geometry, material);
-    ball.castShadow = true;
+    // Starting positions for balls (distributed around the top level)
+    const startPositions = [
+        { x: -0.15, z: -0.15 },
+        { x: -0.15, z: 0.15 },
+        { x: 0.15, z: -0.15 },
+        { x: 0.15, z: 0.15 },
+        { x: -0.15, z: 0 },
+        { x: 0.15, z: 0 }
+    ];
 
-    // Start position at entrance of top maze
-    ballPosition.x = -MAZE_SIZE / 2 + BALL_RADIUS + 0.02;
-    ballPosition.y = mazeLevels[0].yPosition + 0.01 + BALL_RADIUS;
-    ballPosition.z = -MAZE_SIZE / 2 + BALL_RADIUS + 0.02;
+    for (let i = 0; i < NUM_BALLS; i++) {
+        // Create reflective metal material
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xcccccc,
+            metalness: 0.95,
+            roughness: 0.1,
+            envMapIntensity: 1.5
+        });
+        material.envMap = cubeRenderTarget.texture;
 
-    ball.position.set(ballPosition.x, ballPosition.y, ballPosition.z);
-    scene.add(ball);
+        const ballMesh = new THREE.Mesh(geometry, material);
+        ballMesh.castShadow = true;
+
+        // Position ball
+        const startPos = startPositions[i];
+        const ballData = {
+            mesh: ballMesh,
+            position: {
+                x: startPos.x,
+                y: mazeLevels[0].yPosition + 0.01 + BALL_RADIUS,
+                z: startPos.z
+            },
+            velocity: { x: 0, y: 0, z: 0 },
+            currentLevel: 0,
+            isFalling: false,
+            fallTarget: null
+        };
+
+        ballMesh.position.set(ballData.position.x, ballData.position.y, ballData.position.z);
+        scene.add(ballMesh);
+        balls.push(ballData);
+    }
 }
 
 function setupMouseControls() {
@@ -322,7 +336,7 @@ function setupMouseControls() {
 }
 
 function updatePhysics() {
-    if (!ball || mazeLevels.length === 0) return;
+    if (balls.length === 0 || mazeLevels.length === 0) return;
 
     // Smooth tilt interpolation
     tiltX += (targetTiltX - tiltX) * 0.1;
@@ -332,119 +346,152 @@ function updatePhysics() {
     window.mazeGroup.rotation.x = tiltX;
     window.mazeGroup.rotation.z = tiltY;
 
-    if (isFalling) {
-        // Ball is falling to next level
-        ballVelocity.y -= GRAVITY * 3;
-        ballPosition.y += ballVelocity.y;
-
-        ball.position.set(ballPosition.x, ballPosition.y, ballPosition.z);
-
-        // Check if reached target level
-        if (fallTarget && ballPosition.y <= fallTarget.yPosition + BALL_RADIUS + 0.01) {
-            ballPosition.y = fallTarget.yPosition + BALL_RADIUS + 0.01;
-            ballVelocity.y = -ballVelocity.y * BOUNCE_DAMPING;
-
-            if (Math.abs(ballVelocity.y) < 0.0001) {
-                isFalling = false;
-                fallTarget = null;
-                currentLevel++;
-                updateLevelIndicator();
-            }
-
-            ball.position.set(ballPosition.x, ballPosition.y, ballPosition.z);
-        }
-        return;
-    }
-
     // Apply gravity based on tilt
     const gravityX = Math.sin(tiltY) * GRAVITY;
     const gravityZ = Math.sin(tiltX) * GRAVITY;
 
-    ballVelocity.x += gravityX;
-    ballVelocity.z += gravityZ;
+    // Update each ball
+    balls.forEach((ballData, ballIndex) => {
+        if (ballData.isFalling) {
+            // Ball is falling to next level
+            ballData.velocity.y -= GRAVITY * 3;
+            ballData.position.y += ballData.velocity.y;
 
-    // Apply friction
-    ballVelocity.x *= FRICTION;
-    ballVelocity.z *= FRICTION;
+            ballData.mesh.position.set(ballData.position.x, ballData.position.y, ballData.position.z);
 
-    // Update position
-    ballPosition.x += ballVelocity.x;
-    ballPosition.z += ballVelocity.z;
+            // Check if reached target level
+            if (ballData.fallTarget && ballData.position.y <= ballData.fallTarget.yPosition + BALL_RADIUS + 0.01) {
+                ballData.position.y = ballData.fallTarget.yPosition + BALL_RADIUS + 0.01;
+                ballData.velocity.y = -ballData.velocity.y * BOUNCE_DAMPING;
 
-    // Collision detection with walls
-    const level = mazeLevels[currentLevel];
-    if (level) {
-        // Boundary walls
-        if (ballPosition.x - BALL_RADIUS < -MAZE_SIZE / 2) {
-            ballPosition.x = -MAZE_SIZE / 2 + BALL_RADIUS;
-            ballVelocity.x = -ballVelocity.x * BOUNCE_DAMPING;
-        }
-        if (ballPosition.x + BALL_RADIUS > MAZE_SIZE / 2) {
-            ballPosition.x = MAZE_SIZE / 2 - BALL_RADIUS;
-            ballVelocity.x = -ballVelocity.x * BOUNCE_DAMPING;
-        }
-        if (ballPosition.z - BALL_RADIUS < -MAZE_SIZE / 2) {
-            ballPosition.z = -MAZE_SIZE / 2 + BALL_RADIUS;
-            ballVelocity.z = -ballVelocity.z * BOUNCE_DAMPING;
-        }
-        if (ballPosition.z + BALL_RADIUS > MAZE_SIZE / 2) {
-            ballPosition.z = MAZE_SIZE / 2 - BALL_RADIUS;
-            ballVelocity.z = -ballVelocity.z * BOUNCE_DAMPING;
+                if (Math.abs(ballData.velocity.y) < 0.0001) {
+                    ballData.isFalling = false;
+                    ballData.fallTarget = null;
+                    ballData.currentLevel++;
+                }
+
+                ballData.mesh.position.set(ballData.position.x, ballData.position.y, ballData.position.z);
+            }
+            return;
         }
 
-        // Inner walls collision
-        level.config.walls.forEach(wallConfig => {
-            const halfWidth = wallConfig.width / 2;
-            const halfDepth = wallConfig.depth / 2;
+        // Apply gravity
+        ballData.velocity.x += gravityX;
+        ballData.velocity.z += gravityZ;
 
-            const closestX = Math.max(wallConfig.x - halfWidth, Math.min(ballPosition.x, wallConfig.x + halfWidth));
-            const closestZ = Math.max(wallConfig.z - halfDepth, Math.min(ballPosition.z, wallConfig.z + halfDepth));
+        // Apply friction
+        ballData.velocity.x *= FRICTION;
+        ballData.velocity.z *= FRICTION;
 
-            const distanceX = ballPosition.x - closestX;
-            const distanceZ = ballPosition.z - closestZ;
-            const distance = Math.sqrt(distanceX * distanceX + distanceZ * distanceZ);
+        // Update position
+        ballData.position.x += ballData.velocity.x;
+        ballData.position.z += ballData.velocity.z;
 
-            if (distance < BALL_RADIUS) {
-                const overlap = BALL_RADIUS - distance;
-                if (distance > 0) {
-                    ballPosition.x += (distanceX / distance) * overlap;
-                    ballPosition.z += (distanceZ / distance) * overlap;
+        // Collision detection with walls
+        const level = mazeLevels[ballData.currentLevel];
+        if (level) {
+            // Boundary walls
+            if (ballData.position.x - BALL_RADIUS < -MAZE_SIZE / 2) {
+                ballData.position.x = -MAZE_SIZE / 2 + BALL_RADIUS;
+                ballData.velocity.x = -ballData.velocity.x * BOUNCE_DAMPING;
+            }
+            if (ballData.position.x + BALL_RADIUS > MAZE_SIZE / 2) {
+                ballData.position.x = MAZE_SIZE / 2 - BALL_RADIUS;
+                ballData.velocity.x = -ballData.velocity.x * BOUNCE_DAMPING;
+            }
+            if (ballData.position.z - BALL_RADIUS < -MAZE_SIZE / 2) {
+                ballData.position.z = -MAZE_SIZE / 2 + BALL_RADIUS;
+                ballData.velocity.z = -ballData.velocity.z * BOUNCE_DAMPING;
+            }
+            if (ballData.position.z + BALL_RADIUS > MAZE_SIZE / 2) {
+                ballData.position.z = MAZE_SIZE / 2 - BALL_RADIUS;
+                ballData.velocity.z = -ballData.velocity.z * BOUNCE_DAMPING;
+            }
 
-                    // Reflect velocity
-                    const normal = { x: distanceX / distance, z: distanceZ / distance };
-                    const dot = ballVelocity.x * normal.x + ballVelocity.z * normal.z;
-                    ballVelocity.x = (ballVelocity.x - 2 * dot * normal.x) * BOUNCE_DAMPING;
-                    ballVelocity.z = (ballVelocity.z - 2 * dot * normal.z) * BOUNCE_DAMPING;
+            // Inner walls collision
+            level.config.walls.forEach(wallConfig => {
+                const halfWidth = wallConfig.width / 2;
+                const halfDepth = wallConfig.depth / 2;
+
+                const closestX = Math.max(wallConfig.x - halfWidth, Math.min(ballData.position.x, wallConfig.x + halfWidth));
+                const closestZ = Math.max(wallConfig.z - halfDepth, Math.min(ballData.position.z, wallConfig.z + halfDepth));
+
+                const distanceX = ballData.position.x - closestX;
+                const distanceZ = ballData.position.z - closestZ;
+                const distance = Math.sqrt(distanceX * distanceX + distanceZ * distanceZ);
+
+                if (distance < BALL_RADIUS) {
+                    const overlap = BALL_RADIUS - distance;
+                    if (distance > 0) {
+                        ballData.position.x += (distanceX / distance) * overlap;
+                        ballData.position.z += (distanceZ / distance) * overlap;
+
+                        // Reflect velocity
+                        const normal = { x: distanceX / distance, z: distanceZ / distance };
+                        const dot = ballData.velocity.x * normal.x + ballData.velocity.z * normal.z;
+                        ballData.velocity.x = (ballData.velocity.x - 2 * dot * normal.x) * BOUNCE_DAMPING;
+                        ballData.velocity.z = (ballData.velocity.z - 2 * dot * normal.z) * BOUNCE_DAMPING;
+                    }
+                }
+            });
+
+            // Ball-to-ball collision
+            balls.forEach((otherBall, otherIndex) => {
+                if (ballIndex !== otherIndex && ballData.currentLevel === otherBall.currentLevel && !otherBall.isFalling) {
+                    const dx = ballData.position.x - otherBall.position.x;
+                    const dz = ballData.position.z - otherBall.position.z;
+                    const distance = Math.sqrt(dx * dx + dz * dz);
+
+                    if (distance < BALL_RADIUS * 2) {
+                        const overlap = BALL_RADIUS * 2 - distance;
+                        if (distance > 0) {
+                            const nx = dx / distance;
+                            const nz = dz / distance;
+
+                            // Separate balls
+                            ballData.position.x += nx * overlap * 0.5;
+                            ballData.position.z += nz * overlap * 0.5;
+                            otherBall.position.x -= nx * overlap * 0.5;
+                            otherBall.position.z -= nz * overlap * 0.5;
+
+                            // Exchange velocities (simplified elastic collision)
+                            const relVelX = ballData.velocity.x - otherBall.velocity.x;
+                            const relVelZ = ballData.velocity.z - otherBall.velocity.z;
+                            const dot = relVelX * nx + relVelZ * nz;
+
+                            if (dot < 0) {
+                                ballData.velocity.x -= dot * nx * BOUNCE_DAMPING;
+                                ballData.velocity.z -= dot * nz * BOUNCE_DAMPING;
+                                otherBall.velocity.x += dot * nx * BOUNCE_DAMPING;
+                                otherBall.velocity.z += dot * nz * BOUNCE_DAMPING;
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Check if ball is over the hole
+            const distanceFromCenter = Math.sqrt(ballData.position.x * ballData.position.x + ballData.position.z * ballData.position.z);
+            if (distanceFromCenter < HOLE_RADIUS - BALL_RADIUS * 0.5) {
+                // Ball falls through hole
+                if (ballData.currentLevel < TOTAL_LEVELS - 1) {
+                    ballData.isFalling = true;
+                    ballData.fallTarget = mazeLevels[ballData.currentLevel + 1];
+                    ballData.velocity.x = 0;
+                    ballData.velocity.z = 0;
+                } else {
+                    // Reached the bottom!
+                    console.log("Ball completed the maze!");
                 }
             }
-        });
-
-        // Check if ball is over the hole
-        const distanceFromCenter = Math.sqrt(ballPosition.x * ballPosition.x + ballPosition.z * ballPosition.z);
-        if (distanceFromCenter < HOLE_RADIUS - BALL_RADIUS * 0.5) {
-            // Ball falls through hole
-            if (currentLevel < TOTAL_LEVELS - 1) {
-                isFalling = true;
-                fallTarget = mazeLevels[currentLevel + 1];
-                ballVelocity.x = 0;
-                ballVelocity.z = 0;
-            } else {
-                // Reached the bottom!
-                console.log("Maze completed!");
-            }
         }
-    }
 
-    ball.position.set(ballPosition.x, ballPosition.y, ballPosition.z);
+        ballData.mesh.position.set(ballData.position.x, ballData.position.y, ballData.position.z);
 
-    // Update rotation based on velocity (rolling effect)
-    ball.rotation.x += ballVelocity.z * 10;
-    ball.rotation.z -= ballVelocity.x * 10;
-}
-
-function updateLevelIndicator() {
-    document.getElementById('current-level').textContent = currentLevel + 1;
-    document.getElementById('total-levels').textContent = TOTAL_LEVELS;
+        // Update rotation based on velocity (rolling effect)
+        ballData.mesh.rotation.x += ballData.velocity.z * 10;
+        ballData.mesh.rotation.z -= ballData.velocity.x * 10;
+    });
 }
 
 function onWindowResize() {
@@ -458,12 +505,12 @@ function animate() {
 
     updatePhysics();
 
-    // Update environment map for ball reflections
-    if (window.cubeCamera && ball) {
-        ball.visible = false;
-        window.cubeCamera.position.copy(ball.position);
+    // Update environment map for ball reflections (use first ball as reference)
+    if (window.cubeCamera && balls.length > 0) {
+        balls.forEach(ball => ball.mesh.visible = false);
+        window.cubeCamera.position.copy(balls[0].mesh.position);
         window.cubeCamera.update(renderer, scene);
-        ball.visible = true;
+        balls.forEach(ball => ball.mesh.visible = true);
     }
 
     renderer.render(scene, camera);
